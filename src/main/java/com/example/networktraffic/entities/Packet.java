@@ -28,7 +28,7 @@ public class Packet {
     private Long id;
 
     @Column(nullable=false)
-    private Instant timestamp;
+    private Instant timeStamp;
 
 
     @Column(nullable = false, length= 15)
@@ -45,7 +45,7 @@ public class Packet {
     private Protocol protocol;
 
 
-    private Integer pakcetSize;
+    private Integer packetSize;
 
     private String tcpFlags;
 
