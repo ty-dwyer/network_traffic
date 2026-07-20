@@ -1,27 +1,49 @@
 package com.example.networktraffic.parser;
+import java.io.DataInputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+
+import org.springframework.stereotype.Component;
 
 import com.example.networktraffic.entities.Packet;
 import com.example.networktraffic.entities.Protocol;
 
+@Component
 public class PcapParser {
     
-    public List<Packet> openFile (String path){
-            List<Packet> packetList = new ArrayList<>();
-            try (FileInputStream fis = new FileInputStream(path)){
-                int data;
-                while((data=fis.read())!= -1 ){
-                    System.out.print(data+" ");
-                }
-            } catch (IOException e){
-                e.printStackTrace();
-            }
+    public List<Packet> openFile(String path) throws IOException {
+    List<Packet> packets = new ArrayList<>();
+
+    try (DataInputStream stream = new DataInputStream(new FileInputStream(path))) {
+        stream.skipBytes(24);
+
+        while (stream.available() > 0) {
+            byte[] packetHeader = new byte[16];
+            stream.readFully(packetHeader);
+
+            int tsSeconds = ((packetHeader[0] & 0xFF)) | ((packetHeader[1] & 0xFF) << 8)
+                           | ((packetHeader[2] & 0xFF) << 16) | ((packetHeader[3] & 0xFF) << 24);
+            int tsMicros = ((packetHeader[4] & 0xFF)) | ((packetHeader[5] & 0xFF) << 8)
+                          | ((packetHeader[6] & 0xFF) << 16) | ((packetHeader[7] & 0xFF) << 24);
+            int capturedLength = ((packetHeader[8] & 0xFF)) | ((packetHeader[9] & 0xFF) << 8)
+                                | ((packetHeader[10] & 0xFF) << 16) | ((packetHeader[11] & 0xFF) << 24);
+
+            Instant timestamp = Instant.ofEpochSecond(tsSeconds, tsMicros * 1000L);
+
+            byte[] input = new byte[capturedLength];
+            stream.readFully(input);
+
+            Packet packet = parsePacket(input, timestamp, capturedLength);
+            packets.add(packet);
+             }
+        }
+    return packets;
     }
 
-    public Packet parsePacket (byte[] input, int timeStamp, int pakcetSize){
+    public Packet parsePacket (byte[] input, Instant timeStamp, int pakcetSize){
         Protocol protocol;
         Packet packet = new Packet();
         Integer sourcePort=null;
