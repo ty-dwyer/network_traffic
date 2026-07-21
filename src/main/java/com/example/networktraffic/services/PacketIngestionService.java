@@ -7,22 +7,26 @@ import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 
+import com.example.networktraffic.entities.Alert;
 import com.example.networktraffic.entities.Device;
 import com.example.networktraffic.entities.Packet;
 import com.example.networktraffic.parser.PcapParser;
 import com.example.networktraffic.repositories.DeviceRepository;
 import com.example.networktraffic.repositories.NetworkRepository;
+import com.example.networktraffic.repositories.AlertRepository;
 
 @Service
 public class PacketIngestionService {
     private final NetworkRepository networkRepository;
     private final PcapParser pcapParser;
     private final DeviceRepository deviceRepository;
+    private final AlertRepository alertRepository;
 
-    public PacketIngestionService(NetworkRepository networkRepository, PcapParser pcapParser, DeviceRepository deviceRepository) {
+    public PacketIngestionService(NetworkRepository networkRepository, PcapParser pcapParser, DeviceRepository deviceRepository, AlertRepository alertRepository) {
         this.networkRepository = networkRepository;
         this.pcapParser = pcapParser;
         this.deviceRepository= deviceRepository;
+        this.alertRepository = alertRepository;
     }
 
     public int ingest(String filePath) throws IOException {
@@ -46,13 +50,22 @@ public class PacketIngestionService {
             device.setLastSeen(Instant.now());
             return deviceRepository.save(device);
         }
-        else{
+        else {
             Device newDevice = new Device();
             newDevice.setIpAddress(ipAddress);
             newDevice.setFirstSeen(Instant.now());
             newDevice.setLastSeen(Instant.now());
             newDevice.setTrusted(false);
-            return deviceRepository.save(newDevice);
+            Device savedDevice = deviceRepository.save(newDevice);
+        
+            Alert newAlert = new Alert();
+            newAlert.setType(Alert.AlertType.NEW_DEVICE);
+            newAlert.setMessage("New device detected: " + ipAddress);
+            newAlert.setTimeStamp(Instant.now());
+            newAlert.setDevice(savedDevice);
+            alertRepository.save(newAlert);
+        
+            return savedDevice;
         }
 
     }
