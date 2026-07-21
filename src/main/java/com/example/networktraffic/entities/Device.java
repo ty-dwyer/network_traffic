@@ -25,7 +25,7 @@ public class Device {
 
 
 
-    @Column(nullable = false, unique = true, length = 17)
+    @Column(unique = true, length = 17)
     private String macAddress;
 
     private String ipAddress;
