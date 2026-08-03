@@ -10,8 +10,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.example.networktraffic.entities.Alert;
 import com.example.networktraffic.entities.Packet;
-import com.example.networktraffic.repositories.NetworkRepository;
 import com.example.networktraffic.repositories.AlertRepository;
+import com.example.networktraffic.repositories.NetworkRepository;
 import com.example.networktraffic.services.PacketIngestionService;
 
 @RestController
@@ -40,5 +40,5 @@ public class PacketController {
   @GetMapping("/alerts")
   public List<Alert> getAllAlerts(){
     return alertRepository.findAll();
-}
+  }
 }

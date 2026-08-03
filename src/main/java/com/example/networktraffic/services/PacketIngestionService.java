@@ -5,15 +5,16 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 import com.example.networktraffic.entities.Alert;
 import com.example.networktraffic.entities.Device;
 import com.example.networktraffic.entities.Packet;
 import com.example.networktraffic.parser.PcapParser;
+import com.example.networktraffic.repositories.AlertRepository;
 import com.example.networktraffic.repositories.DeviceRepository;
 import com.example.networktraffic.repositories.NetworkRepository;
-import com.example.networktraffic.repositories.AlertRepository;
 
 @Service
 public class PacketIngestionService {
@@ -21,12 +22,14 @@ public class PacketIngestionService {
     private final PcapParser pcapParser;
     private final DeviceRepository deviceRepository;
     private final AlertRepository alertRepository;
+    private final SimpMessagingTemplate messagingTemplate;
 
-    public PacketIngestionService(NetworkRepository networkRepository, PcapParser pcapParser, DeviceRepository deviceRepository, AlertRepository alertRepository) {
+    public PacketIngestionService(NetworkRepository networkRepository, PcapParser pcapParser, DeviceRepository deviceRepository, AlertRepository alertRepository, SimpMessagingTemplate messagingTemplate) {
         this.networkRepository = networkRepository;
         this.pcapParser = pcapParser;
         this.deviceRepository= deviceRepository;
         this.alertRepository = alertRepository;
+        this.messagingTemplate = messagingTemplate;
     }
 
     public int ingest(String filePath) throws IOException {
@@ -64,6 +67,7 @@ public class PacketIngestionService {
             newAlert.setTimeStamp(Instant.now());
             newAlert.setDevice(savedDevice);
             alertRepository.save(newAlert);
+            messagingTemplate.convertAndSend("/topic/alerts", newAlert);
         
             return savedDevice;
         }
