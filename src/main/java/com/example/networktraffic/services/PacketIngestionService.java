@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -32,13 +33,29 @@ public class PacketIngestionService {
         this.messagingTemplate = messagingTemplate;
     }
 
+    private static final Set<Integer> ALLOWED_PORTS = Set.of(80, 443, 53, 22);
+
     public int ingest(String filePath) throws IOException {
         List<Packet> packets = pcapParser.openFile(filePath);
 
         for (Packet packet : packets) {
             Device device = findOrCreateDevice(packet.getSourceIp());
             packet.setDevice(device);
-            networkRepository.save(packet);
+            Packet savedPacket = networkRepository.save(packet);
+            messagingTemplate.convertAndSend("/topic/packets", savedPacket);
+
+            Integer destPort = savedPacket.getDestPort();
+            if (destPort != null && !ALLOWED_PORTS.contains(destPort)) {
+                if (!alertRepository.existsByDeviceAndType(device, Alert.AlertType.UNUSUAL_PORT)) {
+                    Alert newAlert = new Alert();
+                    newAlert.setType(Alert.AlertType.UNUSUAL_PORT);
+                    newAlert.setMessage("Unusual port detected: " + destPort);
+                    newAlert.setTimeStamp(Instant.now());
+                    newAlert.setDevice(device);
+                    alertRepository.save(newAlert);
+                    messagingTemplate.convertAndSend("/topic/alerts", newAlert);
+                }
+        }
         }
 
         return packets.size();
@@ -60,7 +77,7 @@ public class PacketIngestionService {
             newDevice.setLastSeen(Instant.now());
             newDevice.setTrusted(false);
             Device savedDevice = deviceRepository.save(newDevice);
-        
+            
             Alert newAlert = new Alert();
             newAlert.setType(Alert.AlertType.NEW_DEVICE);
             newAlert.setMessage("New device detected: " + ipAddress);
