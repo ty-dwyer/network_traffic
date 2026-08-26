@@ -1,12 +1,12 @@
 # Network Traffic Monitoring & Anomaly Dashboard — Backend
 
-A Spring Boot backend that ingests raw `.pcap` network capture files, parses packet headers **manually at the byte level** (no third-party packet-parsing library), tracks devices seen on the network, flags anomalies in real time, and pushes live updates to connected clients over WebSocket.
+A Spring Boot backend that ingests raw `.pcap` network capture files, parses packet headers **manually at the byte level**, and tracks devices seen on the network, flags anomalies in real time, and pushes live updates to connected clients over WebSocket.
 
-This repo is the backend/API. The frontend dashboard lives in a separate repo: [network-dashboard](../network-dashboard).
+This repo is the backend/API. The frontend dashboard lives in a separate repo: [network-dashboard](https://github.com/ty-dwyer/network_traffic_frontend).
 
 ## Features
 
-- **Custom byte-level `.pcap` parser** — reads raw capture files and manually extracts Ethernet/IPv4/TCP/UDP header fields (source/dest IP, ports, protocol, TCP flags) via bit-shifting and masking, without relying on a packet-parsing library
+- **Custom byte-level `.pcap` parser** — reads raw capture files and manually extracts Ethernet/IPv4/TCP/UDP header fields (source/dest IP, ports, protocol, TCP flags) via bit-shifting and masking
 - **Device tracking** — automatically identifies and tracks unique devices by source IP, recording first-seen/last-seen timestamps
 - **Anomaly detection**
   - Flags new/unrecognized devices the first time they appear on the network
