@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -24,16 +23,16 @@ public class PacketIngestionService {
     private final DeviceRepository deviceRepository;
     private final AlertRepository alertRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final AnomalyDetectionService anomalyDetectionService;
 
-    public PacketIngestionService(NetworkRepository networkRepository, PcapParser pcapParser, DeviceRepository deviceRepository, AlertRepository alertRepository, SimpMessagingTemplate messagingTemplate) {
+    public PacketIngestionService(NetworkRepository networkRepository, PcapParser pcapParser, DeviceRepository deviceRepository, AlertRepository alertRepository, SimpMessagingTemplate messagingTemplate, AnomalyDetectionService anomalyDetectionService) {
         this.networkRepository = networkRepository;
         this.pcapParser = pcapParser;
         this.deviceRepository= deviceRepository;
         this.alertRepository = alertRepository;
         this.messagingTemplate = messagingTemplate;
+        this.anomalyDetectionService = anomalyDetectionService;
     }
-
-    private static final Set<Integer> ALLOWED_PORTS = Set.of(80, 443, 53, 22);
 
     public int ingest(String filePath) throws IOException {
         List<Packet> packets = pcapParser.openFile(filePath);
@@ -43,19 +42,7 @@ public class PacketIngestionService {
             packet.setDevice(device);
             Packet savedPacket = networkRepository.save(packet);
             messagingTemplate.convertAndSend("/topic/packets", savedPacket);
-
-            Integer destPort = savedPacket.getDestPort();
-            if (destPort != null && !ALLOWED_PORTS.contains(destPort)) {
-                if (!alertRepository.existsByDeviceAndType(device, Alert.AlertType.UNUSUAL_PORT)) {
-                    Alert newAlert = new Alert();
-                    newAlert.setType(Alert.AlertType.UNUSUAL_PORT);
-                    newAlert.setMessage("Unusual port detected: " + destPort);
-                    newAlert.setTimeStamp(Instant.now());
-                    newAlert.setDevice(device);
-                    alertRepository.save(newAlert);
-                    messagingTemplate.convertAndSend("/topic/alerts", newAlert);
-                }
-        }
+            anomalyDetectionService.evaluate(savedPacket, device);
         }
 
         return packets.size();

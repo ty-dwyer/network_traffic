@@ -33,7 +33,11 @@ public class Alert {
     public enum AlertType {
         NEW_DEVICE,
         TRAFFIC_SPIKE,
-        UNUSUAL_PORT
+        UNUSUAL_PORT,
+        PORT_SCAN,
+        SYN_FLOOD,
+        LARGE_PACKET,
+        DNS_VOLUME
     }
 
     private String message;
