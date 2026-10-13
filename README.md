@@ -6,11 +6,13 @@ This repo is the backend/API. The frontend dashboard lives in a separate repo: [
 
 ## Features
 
-- **Custom byte-level `.pcap` parser** — reads raw capture files and manually extracts Ethernet/IPv4/TCP/UDP header fields (source/dest IP, ports, protocol, TCP flags) via bit-shifting and masking
+- **Custom byte-level `.pcap` parser** — validates classic PCAP headers, supports both byte orders and timestamp resolutions, and manually decodes Ethernet, VLAN, IPv4 options, TCP, and UDP headers
+- **Bounded-memory ingestion** — reads captures as packet batches and persists each batch with `saveAll`, instead of loading the complete capture into memory
 - **Device tracking** — automatically identifies and tracks unique devices by source IP, recording first-seen/last-seen timestamps
 - **Anomaly detection**
   - Flags new/unrecognized devices the first time they appear on the network
-  - Flags devices communicating on non-standard ports (outside an allowed list), once per device
+  - Detects traffic spikes, destination-port scans, SYN floods, large packets, high DNS volume, and unusual destination ports
+  - Applies a configurable threshold window and per-device alert cooldown
 - **Real-time updates** — new packets and alerts are pushed to connected clients over STOMP-over-WebSocket as they're ingested, no polling required
 - **File upload** — accepts `.pcap` files directly via HTTP upload, in addition to server-side file paths
 - **JWT authentication** — stateless, token-based auth protecting all data endpoints; passwords hashed with BCrypt
@@ -118,12 +120,11 @@ curl -X POST localhost:8080/ingest/upload \
 ## Notable Design Decisions
 
 - **Manual packet parsing over a library (e.g. pcap4j)** — chosen to demonstrate understanding of the IPv4/TCP/UDP header formats at the byte level, rather than relying on a library to do the interpretation.
-- **IPv4-only, no IP options support** — scoped deliberately to keep the parser's byte offsets fixed and predictable; IPv6 and Ethernet-layer (ARP) parsing are natural follow-up extensions.
+- **IPv4-only** — IPv6 and non-Ethernet PCAP link types are not supported. Non-IPv4 Ethernet frames are skipped.
 - **DTOs separate from JPA entities** — request/response shapes (`RegisterRequest`, `LoginRequest`) are decoupled from database entities, so the API contract doesn't leak internal schema details.
 - **Stateless JWT auth** — no server-side sessions; every request authenticates independently via its token, matching the REST/WebSocket architecture.
 
 ## Known Limitations
 
 - The JWT signing key is generated randomly at startup, so all issued tokens are invalidated on server restart. A production deployment would use a fixed secret from configuration/environment variables.
-- Currently supports IPv4 traffic only; IPv6 and Ethernet-layer protocols (e.g. ARP) are not parsed.
-- Traffic-volume ("spike") anomaly detection is not yet implemented; the current anomaly rules are new-device and unusual-port detection.
+- Currently supports classic PCAP files containing Ethernet/IPv4 traffic; IPv6, PCAPNG, and non-Ethernet link types are not supported. Captured packets above 16 MiB are rejected to bound memory use.

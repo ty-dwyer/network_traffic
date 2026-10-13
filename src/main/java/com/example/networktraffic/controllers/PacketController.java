@@ -1,7 +1,8 @@
 package com.example.networktraffic.controllers;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 import org.springframework.web.bind.annotation.GetMapping;
@@ -46,14 +47,14 @@ public class PacketController {
 
 @PostMapping("/ingest/upload")
 public String uploadAndIngest(@RequestParam("file") MultipartFile file) throws IOException {
-    File tempFile = File.createTempFile("upload-", ".pcap");
-    file.transferTo(tempFile);
-
-    int count = ingestionService.ingest(tempFile.getAbsolutePath());
-
-    tempFile.delete();
-
-    return count + " packets ingested";
+    Path tempFile = Files.createTempFile("upload-", ".pcap");
+    try {
+      file.transferTo(tempFile.toFile());
+      int count = ingestionService.ingest(tempFile.toString());
+      return count + " packets ingested";
+    } finally {
+      Files.deleteIfExists(tempFile);
+    }
 }
 
 }

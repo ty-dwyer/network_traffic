@@ -2,7 +2,9 @@ package com.example.networktraffic.services;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -18,6 +20,7 @@ import com.example.networktraffic.repositories.NetworkRepository;
 
 @Service
 public class PacketIngestionService {
+    private static final int INGEST_BATCH_SIZE = 500;
     private final NetworkRepository networkRepository;
     private final PcapParser pcapParser;
     private final DeviceRepository deviceRepository;
@@ -35,17 +38,21 @@ public class PacketIngestionService {
     }
 
     public int ingest(String filePath) throws IOException {
-        List<Packet> packets = pcapParser.openFile(filePath);
-
-        for (Packet packet : packets) {
-            Device device = findOrCreateDevice(packet.getSourceIp());
-            packet.setDevice(device);
-            Packet savedPacket = networkRepository.save(packet);
-            messagingTemplate.convertAndSend("/topic/packets", savedPacket);
-            anomalyDetectionService.evaluate(savedPacket, device);
-        }
-
-        return packets.size();
+        int[] count = {0};
+        pcapParser.readBatches(filePath, INGEST_BATCH_SIZE, packets -> {
+            Map<String, Device> devicesByIp = new HashMap<>();
+            for (Packet packet : packets) {
+                Device device = devicesByIp.computeIfAbsent(packet.getSourceIp(), this::findOrCreateDevice);
+                packet.setDevice(device);
+            }
+            List<Packet> savedPackets = networkRepository.saveAll(packets);
+            for (Packet savedPacket : savedPackets) {
+                messagingTemplate.convertAndSend("/topic/packets", savedPacket);
+                anomalyDetectionService.evaluate(savedPacket, savedPacket.getDevice());
+            }
+            count[0] += savedPackets.size();
+        });
+        return count[0];
     }
 
 
