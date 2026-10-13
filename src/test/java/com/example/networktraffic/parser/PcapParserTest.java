@@ -42,7 +42,7 @@ class PcapParserTest {
 
     @Test
     void parsesBigEndianPcapAndNanosecondTimestamp() throws Exception {
-        Path file = writePcap(ByteOrder.BIG_ENDIAN, ethernetFrame(false), 2, true);
+        Path file = writePcap(ByteOrder.BIG_ENDIAN, ethernetFrame(false), 1, true);
         Packet packet = parser.openFile(file.toString()).getFirst();
 
         assertThat(packet.getTimeStamp().getNano()).isEqualTo(123_456_789);

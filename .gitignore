@@ -1,6 +1,17 @@
 # Compiled class file
 *.class
 
+# Maven build output
+/target/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# macOS
+.DS_Store
+
 # Log file
 *.log
 

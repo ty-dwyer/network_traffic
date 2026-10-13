@@ -71,7 +71,8 @@ class AnomalyDetectionServiceTest {
                 3,
                 3,
                 1400,
-                3);
+                3,
+                "80,443,53,22");
     }
 
     @Test

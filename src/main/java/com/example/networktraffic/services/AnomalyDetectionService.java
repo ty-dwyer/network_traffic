@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -20,7 +21,6 @@ import com.example.networktraffic.repositories.AlertRepository;
 @Service
 public class AnomalyDetectionService {
 
-    private static final Set<Integer> ALLOWED_PORTS = Set.of(80, 443, 53, 22);
     private static final int TCP_SYN = 0x02;
     private static final int TCP_ACK = 0x10;
 
@@ -33,6 +33,7 @@ public class AnomalyDetectionService {
     private final int synFloodSynCount;
     private final int largePacketBytes;
     private final int dnsVolumePacketCount;
+    private final Set<Integer> allowedPorts;
 
     private final Map<String, Deque<Instant>> packetTimesBySource = new HashMap<>();
     private final Map<String, Deque<TimedPort>> destPortsBySource = new HashMap<>();
@@ -48,7 +49,8 @@ public class AnomalyDetectionService {
             @Value("${anomaly.port-scan.unique-ports:20}") int portScanUniquePorts,
             @Value("${anomaly.syn-flood.syn-count:50}") int synFloodSynCount,
             @Value("${anomaly.large-packet.bytes:1400}") int largePacketBytes,
-            @Value("${anomaly.dns-volume.packet-count:50}") int dnsVolumePacketCount) {
+            @Value("${anomaly.dns-volume.packet-count:50}") int dnsVolumePacketCount,
+            @Value("${anomaly.allowed-destination-ports:80,443,53,22}") String allowedDestinationPorts) {
         this.alertRepository = alertRepository;
         this.messagingTemplate = messagingTemplate;
         this.windowSeconds = windowSeconds;
@@ -58,6 +60,7 @@ public class AnomalyDetectionService {
         this.synFloodSynCount = synFloodSynCount;
         this.largePacketBytes = largePacketBytes;
         this.dnsVolumePacketCount = dnsVolumePacketCount;
+        this.allowedPorts = parsePorts(allowedDestinationPorts);
     }
 
     public void evaluate(Packet packet, Device device) {
@@ -113,7 +116,7 @@ public class AnomalyDetectionService {
             }
         }
 
-        if (destPort != null && !ALLOWED_PORTS.contains(destPort)) {
+        if (destPort != null && !allowedPorts.contains(destPort)) {
             emit(device, Alert.AlertType.UNUSUAL_PORT, timestamp,
                     "Unusual port detected: " + destPort);
         }
@@ -171,6 +174,23 @@ public class AnomalyDetectionService {
         Integer destPort = packet.getDestPort();
         Integer sourcePort = packet.getSourcePort();
         return Integer.valueOf(53).equals(destPort) || Integer.valueOf(53).equals(sourcePort);
+    }
+
+    private Set<Integer> parsePorts(String configuredPorts) {
+        if (configuredPorts == null || configuredPorts.isBlank()) return Set.of();
+        try {
+            Set<Integer> ports = java.util.Arrays.stream(configuredPorts.split(","))
+                    .map(String::trim)
+                    .filter(value -> !value.isEmpty())
+                    .map(Integer::parseInt)
+                    .collect(Collectors.toUnmodifiableSet());
+            if (ports.stream().anyMatch(port -> port < 1 || port > 65535)) {
+                throw new IllegalArgumentException("Allowed destination ports must be between 1 and 65535");
+            }
+            return ports;
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException("Allowed destination ports must be comma-separated integers", ex);
+        }
     }
 
     private record TimedPort(Instant time, int port) {

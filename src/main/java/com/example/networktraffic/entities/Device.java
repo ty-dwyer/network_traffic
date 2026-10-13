@@ -9,15 +9,15 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
 @Table(name = "devices")
 @Getter
 @Setter
-@NoArgsConstructor
 public class Device {
+
+    public Device() {}
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

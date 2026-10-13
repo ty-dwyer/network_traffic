@@ -1,130 +1,105 @@
 # Network Traffic Monitoring & Anomaly Dashboard — Backend
 
-A Spring Boot backend that ingests raw `.pcap` network capture files, parses packet headers **manually at the byte level**, and tracks devices seen on the network, flags anomalies in real time, and pushes live updates to connected clients over WebSocket.
-
-This repo is the backend/API. The frontend dashboard lives in a separate repo: [network-dashboard](https://github.com/ty-dwyer/network_traffic_frontend).
+A Spring Boot API that parses classic PCAP captures, tracks observed devices, detects suspicious traffic patterns, stores packets and alerts in PostgreSQL, and broadcasts live updates over STOMP/WebSocket. The frontend lives in the separate [network dashboard repository](https://github.com/ty-dwyer/network_traffic_frontend).
 
 ## Features
 
-- **Custom byte-level `.pcap` parser** — validates classic PCAP headers, supports both byte orders and timestamp resolutions, and manually decodes Ethernet, VLAN, IPv4 options, TCP, and UDP headers
-- **Bounded-memory ingestion** — reads captures as packet batches and persists each batch with `saveAll`, instead of loading the complete capture into memory
-- **Device tracking** — automatically identifies and tracks unique devices by source IP, recording first-seen/last-seen timestamps
-- **Anomaly detection**
-  - Flags new/unrecognized devices the first time they appear on the network
-  - Detects traffic spikes, destination-port scans, SYN floods, large packets, high DNS volume, and unusual destination ports
-  - Applies a configurable threshold window and per-device alert cooldown
-- **Real-time updates** — new packets and alerts are pushed to connected clients over STOMP-over-WebSocket as they're ingested, no polling required
-- **File upload** — accepts `.pcap` files directly via HTTP upload, in addition to server-side file paths
-- **JWT authentication** — stateless, token-based auth protecting all data endpoints; passwords hashed with BCrypt
+- Custom byte-level classic PCAP parser supporting both byte orders, microsecond/nanosecond timestamps, Ethernet VLAN tags, IPv4 options, TCP, and UDP.
+- Bounded-memory capture parsing and packet persistence in batches of 500.
+- Asynchronous ingestion jobs with status, packet count, timestamps, and failure messages.
+- Device tracking and configurable anomaly rules for traffic spikes, port scans, SYN floods, large packets, DNS volume, and unusual destination ports.
+- JWT authentication, BCrypt password hashing, and live packet/alert broadcasts over STOMP.
+- Filterable, paginated packet and alert search endpoints, alert acknowledgement, and device trust management.
+- Flyway database migrations and Swagger UI documentation.
 
-## Tech Stack
+## Tech stack
 
-- Java 25, Spring Boot
-- Spring Data JPA + PostgreSQL
-- Spring Security + JJWT (JSON Web Tokens)
-- Spring WebSocket (STOMP)
-- Maven
-
-## Architecture
-
-```
-.pcap file (upload or server path)
-        │
-        ▼
-   PcapParser            — reads raw bytes, extracts packet header fields manually
-        │
-        ▼
-PacketIngestionService    — orchestrates parsing, device resolution, anomaly checks, persistence, broadcast
-        │
-   ┌────┼────────────┬───────────────┐
-   ▼    ▼             ▼               ▼
-Packet  Device      Alert      SimpMessagingTemplate
-(saved) (found/     (created    (broadcasts new packets
-         created)    if anomaly  and alerts over
-                      detected)  /topic/packets, /topic/alerts)
-        │
-        ▼
-   PostgreSQL (via Spring Data JPA)
-        │
-        ▼
-  REST API (/packets, /alerts) + WebSocket (/ws)
-```
-
-**Layers:**
-- `entities/` — JPA entities: `Packet`, `Device`, `Alert`, `Protocol` (enum), `User`
-- `repositories/` — Spring Data JPA repositories
-- `parser/` — `PcapParser`, the manual byte-level packet parser
-- `services/` — `PacketIngestionService` (parsing → persistence → alerting → broadcast), `AuthService` (registration/login)
-- `controllers/` — REST endpoints
-- `configs/` — Spring configuration (WebSocket, CORS, Security, JWT filter, password encoding)
-- `dto/` — request/response shapes for the API, decoupled from JPA entities
-- `util/` — `JwtUtil`, token generation/validation
+Java 25, Spring Boot 4, Spring Data JPA, PostgreSQL, Spring Security, JJWT, Spring WebSocket, Flyway, Springdoc OpenAPI, and Maven.
 
 ## Setup
 
-### Prerequisites
-- Java 25 (or adjust `pom.xml` for your installed version)
-- PostgreSQL running locally
-- Maven (or use the bundled `./mvnw` wrapper)
+Prerequisites: Java 25 and PostgreSQL. Create the database:
 
-### 1. Create the database
 ```sql
 CREATE DATABASE networkDB;
 ```
 
-### 2. Configure `src/main/resources/application.properties`
-```properties
-spring.datasource.url=jdbc:postgresql://localhost:5432/networkDB
-spring.datasource.username=postgres
-spring.datasource.password=yourpassword
-spring.jpa.hibernate.ddl-auto=update
+Set the database connection and a Base64 JWT secret that decodes to at least 32 bytes:
+
+```bash
+export DB_URL=jdbc:postgresql://localhost:5432/networkDB
+export DB_USERNAME=postgres
+export DB_PASSWORD=yourpassword
+export JWT_SECRET="$(openssl rand -base64 32)"
 ```
 
-### 3. Run
+The database URL, username, and password default to local development values. `JWT_SECRET` is required; keep it stable between restarts so existing tokens remain valid. Optional settings include `JWT_EXPIRATION_MS` and these anomaly variables:
+
+```text
+ANOMALY_WINDOW_SECONDS=10
+ANOMALY_COOLDOWN_SECONDS=60
+ANOMALY_TRAFFIC_SPIKE_PACKET_COUNT=100
+ANOMALY_PORT_SCAN_UNIQUE_PORTS=20
+ANOMALY_SYN_FLOOD_SYN_COUNT=50
+ANOMALY_LARGE_PACKET_BYTES=1400
+ANOMALY_DNS_VOLUME_PACKET_COUNT=50
+ANOMALY_ALLOWED_DESTINATION_PORTS=80,443,53,22
+```
+
+Start the API:
+
 ```bash
 ./mvnw spring-boot:run
 ```
-The API starts on `http://localhost:8080`.
 
-## API Overview
+Flyway applies migrations on startup; Hibernate validates the resulting schema. Existing non-empty databases without Flyway history are baselined at version 1 before later migrations are applied.
 
-| Method | Endpoint | Auth required | Description |
-|---|---|---|---|
-| POST | `/auth/register` | No | Create a new user account |
-| POST | `/auth/login` | No | Log in, returns a JWT |
-| POST | `/ingest?path=...` | Yes | Parse and ingest a `.pcap` file already on the server |
-| POST | `/ingest/upload` | Yes | Upload and ingest a `.pcap` file directly |
-| GET | `/packets` | Yes | List all ingested packets |
-| GET | `/alerts` | Yes | List all generated alerts |
-| WS | `/ws` (STOMP) | — | Subscribe to `/topic/packets` and `/topic/alerts` for live updates |
+## API
 
-Protected endpoints require an `Authorization: Bearer <token>` header, obtained from `/auth/login`.
+All endpoints are authenticated except registration, login, and API docs. Use `Authorization: Bearer <token>` for protected REST endpoints.
 
-### Example: register, log in, and ingest a file
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/auth/register` | Create an account |
+| POST | `/auth/login` | Log in and receive a JWT |
+| POST | `/ingest/upload` | Upload a PCAP and start an asynchronous job; returns `202 Accepted` and a `Location` header |
+| POST | `/ingest?path=...` | Start a job for a PCAP already on the server |
+| GET | `/ingestion-jobs/{id}` | Get job status and progress |
+| GET | `/ingestion-jobs?page=0&size=20` | Page through recent jobs |
+| GET | `/packets/search` | Filter/page packets by `sourceIp`, `destIp`, `protocol`, `from`, and `to` |
+| GET | `/alerts/search` | Filter/page alerts by `type`, `acknowledged`, `deviceIp`, `from`, and `to` |
+| PATCH | `/alerts/{id}/acknowledge` | Acknowledge an alert |
+| GET | `/devices?page=0&size=50&ip=10.0` | Page through devices, optionally filter by IP |
+| PATCH | `/devices/{id}/trust` | Set device trust with `{"trusted": true}` or `false` |
+| GET | `/packets`, `/alerts` | Legacy unpaged lists retained for dashboard compatibility |
+| WS | `/ws` | STOMP endpoint; subscribe to `/topic/packets` and `/topic/alerts` |
+| GET | `/swagger-ui.html` | Interactive API documentation |
+
+Search endpoints default to 50 results per page and cap page size at 100. `from` and `to` accept ISO-8601 instants, for example `2026-01-01T00:00:00Z`.
+
+### Example
 
 ```bash
 curl -X POST localhost:8080/auth/register \
-  -H "Content-Type: application/json" \
+  -H 'Content-Type: application/json' \
   -d '{"username":"demo","password":"password123"}'
 
 curl -X POST localhost:8080/auth/login \
-  -H "Content-Type: application/json" \
+  -H 'Content-Type: application/json' \
   -d '{"username":"demo","password":"password123"}'
-# → returns a JWT
 
 curl -X POST localhost:8080/ingest/upload \
-  -H "Authorization: Bearer <token>" \
-  -F "file=@sample.pcap"
+  -H 'Authorization: Bearer <token>' \
+  -F 'file=@sample.pcap'
+
+curl localhost:8080/ingestion-jobs/1 \
+  -H 'Authorization: Bearer <token>'
 ```
 
-## Notable Design Decisions
+## Design notes and limitations
 
-- **Manual packet parsing over a library (e.g. pcap4j)** — chosen to demonstrate understanding of the IPv4/TCP/UDP header formats at the byte level, rather than relying on a library to do the interpretation.
-- **IPv4-only** — IPv6 and non-Ethernet PCAP link types are not supported. Non-IPv4 Ethernet frames are skipped.
-- **DTOs separate from JPA entities** — request/response shapes (`RegisterRequest`, `LoginRequest`) are decoupled from database entities, so the API contract doesn't leak internal schema details.
-- **Stateless JWT auth** — no server-side sessions; every request authenticates independently via its token, matching the REST/WebSocket architecture.
-
-## Known Limitations
-
-- The JWT signing key is generated randomly at startup, so all issued tokens are invalidated on server restart. A production deployment would use a fixed secret from configuration/environment variables.
-- Currently supports classic PCAP files containing Ethernet/IPv4 traffic; IPv6, PCAPNG, and non-Ethernet link types are not supported. Captured packets above 16 MiB are rejected to bound memory use.
+- Packet decoding is implemented manually to demonstrate understanding of the wire format.
+- Supports classic PCAP over Ethernet/IPv4. IPv6, PCAPNG, and non-Ethernet link types are not supported; non-IPv4 Ethernet frames are skipped. Captured frames above 16 MiB are rejected.
+- Legacy `/packets` and `/alerts` endpoints return all records for compatibility. Use `/search` for bounded result sets.
+- Authenticated users currently share the same packet, device, and alert data; the schema does not isolate data by account.
+- The frontend currently displays the upload response text. The response still indicates the accepted job; poll the `Location` URL or `/ingestion-jobs/{id}` for progress.
